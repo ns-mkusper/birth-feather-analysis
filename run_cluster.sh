@@ -39,10 +39,10 @@ for ip in "${WORKER_IPS[@]}"; do
             echo \"      [+] Creating feather_env and installing dependencies on \$ip (this may take 5+ minutes)...\"
             conda create -y -n feather_env -c conda-forge python=3.10 > /dev/null 2>&1
             conda activate feather_env
-            pip install -q torch torchvision ultralytics pandas open_clip_torch einops kornia timm mlx_vlm grad-cam ray[default] opencv-python python-dotenv
+            pip install -q torch torchvision ultralytics pandas open_clip_torch einops kornia timm mlx_vlm grad-cam 'ray[default]' opencv-python python-dotenv
         else
             conda activate feather_env
-            pip install -q ray[default] python-dotenv mlx_vlm
+            pip install -q 'ray[default]' python-dotenv mlx_vlm
         fi
         
         cd $REPO_DIR && git pull origin main > /dev/null 2>&1
