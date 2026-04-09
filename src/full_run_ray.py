@@ -119,6 +119,41 @@ class FeatherProcessor:
             
             if sam_res.masks is None: return False
             
+            # --- VLM QUALITY ASSURANCE (HEADLESS) ---
+            try:
+                overlay = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
+                for m in sam_res.masks.data.cpu().numpy():
+                    m = cv2.resize(m.astype(np.float32), (overlay.shape[1], overlay.shape[0]))
+                    overlay[m > 0.5] = [255, 0, 0]
+                for box in boxes:
+                    x1, y1, x2, y2 = map(int, box)
+                    cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 255, 0), 6)
+                blended = cv2.addWeighted(cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB), 0.4, overlay, 0.6, 0)
+                
+                comp_path = os.path.join(OUTPUT_DIR, f"vlm_tmp_{os.path.basename(image_path)}")
+                cv2.imwrite(comp_path, cv2.cvtColor(blended, cv2.COLOR_RGB2BGR))
+                
+                raw_prompt = "You are a highly critical, precise computer vision QA bot. Analyze the image. Green boxes are bounding boxes. Red areas are segmentation masks. Critique the segmentation strictly. 1. Are the red masks covering ALL the bird feathers perfectly to the very tips without clipping? 2. Is there ANY background leakage (even 1 pixel of red bleeding onto white paper, ruler, or tape)? 3. Are the green boxes wrapping multiple feathers? Return EXACTLY in this JSON format: { \"quality_score_1_to_10\": 9 }"
+                chatml = f"<|im_start|>system\nYou are a precise computer vision analyst.<|im_end|>\n<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>\n{raw_prompt}<|im_end|>\n<|im_start|>assistant\n"
+                
+                output = mlx_generate(self.vlm_model, self.vlm_processor, prompt=chatml, image=[comp_path], max_tokens=64, verbose=False)
+                import re, json
+                output_text = getattr(output, "text", str(output))
+                match = re.search(r"\{.*?\}", output_text, re.DOTALL)
+                score = 0
+                if match:
+                    score = json.loads(match.group(0)).get("quality_score_1_to_10", 0)
+                
+                with open(os.path.join(BASE_DIR, "vlm_qa_log.csv"), "a") as qa_file:
+                    qa_file.write(f"{os.path.basename(image_path)},{score}\n")
+                    
+            except Exception as e:
+                logging.error(f"VLM QA Failed for {image_path}: {e}")
+            finally:
+                if os.path.exists(comp_path):
+                    os.remove(comp_path)
+            # -----------------------------
+            
             img = cv2.imread(image_path)
             feathers_data = []
             
