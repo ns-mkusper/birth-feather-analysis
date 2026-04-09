@@ -65,10 +65,10 @@ wait # Wait for all worker nodes to finish bootstrapping
 
 echo "3. Starting HEAD Node ($HEAD_IP)..."
 ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "
-    # Use Miniforge Socat to proxy the traffic from localhost to 10.0.0.x (Fixes MacOS aiohttp IPv6 bug)
+    # Force strict IPv4 TCP binding in socat to solve the weird MacOS network stack translation issues.
     pkill -f "socat" || true
-    nohup /Users/openteams/miniforge3/bin/socat TCP-LISTEN:9090,fork,reuseaddr TCP:10.0.0.246:9090 > /dev/null 2>&1 &
-    nohup /Users/openteams/miniforge3/bin/socat TCP-LISTEN:3000,fork,reuseaddr TCP:10.0.0.246:3000 > /dev/null 2>&1 &
+    nohup /Users/openteams/miniforge3/bin/socat TCP4-LISTEN:9090,fork,reuseaddr TCP4:10.0.0.246:9090 > /dev/null 2>&1 &
+    nohup /Users/openteams/miniforge3/bin/socat TCP4-LISTEN:3000,fork,reuseaddr TCP4:10.0.0.246:3000 > /dev/null 2>&1 &
     sleep 2
     RAY_PROMETHEUS_HOST="http://127.0.0.1:9090" RAY_GRAFANA_HOST="http://127.0.0.1:3000" RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1 $RAY_BIN start --head --node-ip-address=$HEAD_IP --port=6379 --dashboard-host=0.0.0.0 --metrics-export-port=8080 > /dev/null 2>&1
 "
