@@ -120,7 +120,7 @@ class FeatherProcessor:
             feathers_data = []
             
             for m in sam_res.masks.data.cpu().numpy():
-                m = cv2.resize(m, (img.shape[1], img.shape[0]))
+                m = cv2.resize(m.astype(np.float32), (img.shape[1], img.shape[0]))
                 binary_mask = (m > 0.5).astype(np.uint8)
                 
                 cnts, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
