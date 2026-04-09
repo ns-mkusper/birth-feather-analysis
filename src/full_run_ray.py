@@ -136,7 +136,7 @@ class FeatherProcessor:
                 raw_prompt = "You are a highly critical, precise computer vision QA bot. Analyze the image. Green boxes are bounding boxes. Red areas are segmentation masks. Critique the segmentation strictly. 1. Are the red masks covering ALL the bird feathers perfectly to the very tips without clipping? 2. Is there ANY background leakage (even 1 pixel of red bleeding onto white paper, ruler, or tape)? 3. Are the green boxes wrapping multiple feathers? Return EXACTLY in this JSON format: { \"quality_score_1_to_10\": 9 }"
                 chatml = f"<|im_start|>system\nYou are a precise computer vision analyst.<|im_end|>\n<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>\n{raw_prompt}<|im_end|>\n<|im_start|>assistant\n"
                 
-                output = mlx_generate(self.vlm_model, self.vlm_processor, prompt=chatml, image=[comp_path], max_tokens=64, verbose=False)
+                output = generate(self.vlm_model, self.vlm_processor, prompt=chatml, image=[comp_path], max_tokens=64, verbose=False)
                 import re, json
                 output_text = getattr(output, "text", str(output))
                 match = re.search(r"\{.*?\}", output_text, re.DOTALL)
