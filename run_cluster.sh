@@ -65,7 +65,12 @@ wait # Wait for all worker nodes to finish bootstrapping
 
 echo "3. Starting HEAD Node ($HEAD_IP)..."
 ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "
-    RAY_PROMETHEUS_HOST="http://10.0.0.246:9090" RAY_GRAFANA_HOST="http://10.0.0.246:3000" RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1 $RAY_BIN start --head --node-ip-address=$HEAD_IP --port=6379 --dashboard-host=0.0.0.0 --metrics-export-port=8080 > /dev/null 2>&1
+    # Aiohttp on Mac has a bug reaching 10.0.0.x. Route traffic through localhost!
+    pkill -f "socat TCP-LISTEN:9090" || true
+    pkill -f "socat TCP-LISTEN:3000" || true
+    nohup socat TCP-LISTEN:9090,fork,reuseaddr TCP:10.0.0.246:9090 > /dev/null 2>&1 &
+    nohup socat TCP-LISTEN:3000,fork,reuseaddr TCP:10.0.0.246:3000 > /dev/null 2>&1 &
+    RAY_PROMETHEUS_HOST="http://127.0.0.1:9090" RAY_GRAFANA_HOST="http://127.0.0.1:3000" RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1 $RAY_BIN start --head --node-ip-address=$HEAD_IP --port=6379 --dashboard-host=0.0.0.0 --metrics-export-port=8080 > /dev/null 2>&1
 "
 echo "   ✅ Head Node active! Dashboard available at http://$HEAD_IP:8265"
 
