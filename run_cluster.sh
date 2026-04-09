@@ -66,11 +66,17 @@ wait # Wait for all worker nodes to finish bootstrapping
 echo "3. Starting HEAD Node ($HEAD_IP)..."
 ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "
     # Force strict IPv4 TCP binding in socat to solve the weird MacOS network stack translation issues.
-    pkill -f "socat" || true
-    nohup /Users/openteams/miniforge3/bin/socat TCP4-LISTEN:9090,fork,reuseaddr TCP4:10.0.0.246:9090 > /dev/null 2>&1 &
-    nohup /Users/openteams/miniforge3/bin/socat TCP4-LISTEN:3000,fork,reuseaddr TCP4:10.0.0.246:3000 > /dev/null 2>&1 &
-    sleep 2
-    RAY_PROMETHEUS_HOST="http://127.0.0.1:9090" RAY_GRAFANA_HOST="http://127.0.0.1:3000" RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1 $RAY_BIN start --head --node-ip-address=$HEAD_IP --port=6379 --dashboard-host=0.0.0.0 --metrics-export-port=8080 > /dev/null 2>&1
+    # Create Ray Metrics Config to force Ray Dashboard to pull from Plex Server
+    mkdir -p /tmp/ray
+    cat << 'METRICS' > /tmp/ray/ray_metrics_config.json
+{
+  "prometheus_host": "http://10.0.0.246:9090",
+  "grafana_host": "http://10.0.0.246:3000",
+  "grafana_dashboard_url": "http://10.0.0.246:3000"
+}
+METRICS
+
+    RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1 $RAY_BIN start --head --node-ip-address=$HEAD_IP --port=6379 --dashboard-host=0.0.0.0 --metrics-export-port=8080 --ray-metrics-config=/tmp/ray/ray_metrics_config.json > /dev/null 2>&1
 "
 echo "   ✅ Head Node active! Dashboard available at http://$HEAD_IP:8265"
 
