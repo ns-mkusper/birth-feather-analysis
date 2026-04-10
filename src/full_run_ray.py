@@ -258,8 +258,14 @@ def run_pipeline(input_dir, output_dir):
     # Query cluster resources to dynamically determine how many actors we can spawn
     # Mac Minis have ~8 cores each. If we have 4 nodes, we have ~32 CPUs total.
     # We will spin up exactly as many actors as there are CPUs to maximize throughput.
+    import time
+    # Wait 5 seconds for remote Mac Minis to fully register before sizing the cluster
+    time.sleep(5)
+    
+    # We explicitly want exactly 1 AI pipeline per physical Mac Mini to prevent Apple Silicon unified memory thrashing
+    active_nodes = len([n for n in ray.nodes() if n.get("Alive")])
+    num_actors = active_nodes
     num_cpus = int(ray.cluster_resources().get('CPU', 4))
-    num_actors = num_cpus // 10
     print(f'Cluster resources: {num_cpus} CPUs available. Spinning up {num_actors} parallel actors to prevent Out-Of-Memory crashes.')
     
     actors = [FeatherProcessor.remote() for _ in range(num_actors)]
