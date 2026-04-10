@@ -37,9 +37,16 @@ ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "
   elif command -v redis-server >/dev/null 2>&1; then
     REDIS_BIN=\$(command -v redis-server)
   else
-    conda install -y -n feather_env -c conda-forge redis >/dev/null 2>&1 || true
-    if [ -x /Users/openteams/miniforge3/envs/feather_env/bin/redis-server ]; then
-      REDIS_BIN=/Users/openteams/miniforge3/envs/feather_env/bin/redis-server
+    if [ -x /opt/homebrew/bin/brew ]; then
+      /opt/homebrew/bin/brew list redis >/dev/null 2>&1 || /opt/homebrew/bin/brew install redis
+    fi
+    if [ -x /opt/homebrew/bin/redis-server ]; then
+      REDIS_BIN=/opt/homebrew/bin/redis-server
+    else
+      conda install -y -n feather_env -c conda-forge redis >/dev/null 2>&1 || true
+      if [ -x /Users/openteams/miniforge3/envs/feather_env/bin/redis-server ]; then
+        REDIS_BIN=/Users/openteams/miniforge3/envs/feather_env/bin/redis-server
+      fi
     fi
   fi
   if [ -z \"\$REDIS_BIN\" ]; then
