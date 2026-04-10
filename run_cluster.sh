@@ -16,6 +16,7 @@ PIP_BIN="/Users/openteams/miniforge3/envs/feather_env/bin/pip"
 BROKER_URL="redis://$HEAD_IP:6379/0"
 RESULT_BACKEND="redis://$HEAD_IP:6379/1"
 WORKER_CONCURRENCY="${WORKER_CONCURRENCY:-1}"
+SYNC_RAW_DATA="${SYNC_RAW_DATA:-1}"
 
 sync_env_file() {
   local ip="$1"
@@ -98,6 +99,23 @@ for ip in "${WORKER_IPS[@]}"; do
   sync_env_file "$ip"
 done
 wait
+
+if [ "$SYNC_RAW_DATA" = "1" ]; then
+  echo "2b. Syncing raw dataset from HEAD to workers (if needed)..."
+  HEAD_RAW_COUNT=$(ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "find '$REPO_DIR/data/raw' -maxdepth 1 -type f | wc -l")
+  for ip in "${WORKER_IPS[@]}"; do
+    WORKER_RAW_COUNT=$(ssh -i $KEY -o StrictHostKeyChecking=no $USER@$ip "find '$REPO_DIR/data/raw' -maxdepth 1 -type f 2>/dev/null | wc -l")
+    if [ "$WORKER_RAW_COUNT" = "$HEAD_RAW_COUNT" ]; then
+      echo "   -> $ip already has $WORKER_RAW_COUNT raw files"
+      continue
+    fi
+    echo "   -> syncing raw data to $ip ($WORKER_RAW_COUNT -> $HEAD_RAW_COUNT files)"
+    ssh -i $KEY -o StrictHostKeyChecking=no $USER@$ip "mkdir -p '$REPO_DIR/data' && rm -rf '$REPO_DIR/data/raw'"
+    ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "cd '$REPO_DIR/data' && tar -cf - raw" | \
+      ssh -i $KEY -o StrictHostKeyChecking=no $USER@$ip "cd '$REPO_DIR/data' && tar -xf -"
+    ssh -i $KEY -o StrictHostKeyChecking=no $USER@$ip "find '$REPO_DIR/data/raw' -maxdepth 1 -type f | wc -l"
+  done
+fi
 
 echo "3. Starting Redis on HEAD..."
 ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "
