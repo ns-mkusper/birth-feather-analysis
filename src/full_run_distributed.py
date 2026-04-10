@@ -1,0 +1,49 @@
+import argparse
+import os
+import time
+from glob import glob
+
+from celery import group
+
+from src.celery_tasks import process_image
+
+
+def run_pipeline(input_dir: str, output_dir: str) -> None:
+    os.makedirs(output_dir, exist_ok=True)
+    image_paths = sorted(glob(os.path.join(input_dir, "*.[jJ][pP][gG]")))
+    if not image_paths:
+        print(f"No JPG files found in {input_dir}")
+        return
+
+    print(f"Dispatching {len(image_paths)} image tasks to Celery workers...")
+    job = group(process_image.s(path, output_dir) for path in image_paths)
+    async_result = job.apply_async()
+
+    total = len(image_paths)
+    while not async_result.ready():
+        completed = async_result.completed_count()
+        print(f"Progress: {completed}/{total} complete")
+        time.sleep(5)
+
+    results = async_result.get(disable_sync_subtasks=False)
+    successes = sum(1 for item in results if item.get("success"))
+    failures = [item for item in results if not item.get("success")]
+
+    print(f"Pipeline complete: {successes}/{total} successful")
+    if failures:
+        print(f"Failures: {len(failures)}")
+        for item in failures[:20]:
+            print(f" - {item.get('image_path')}: {item.get('reason')}")
+
+
+def main() -> None:
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    parser = argparse.ArgumentParser(description="Distributed feather processing with Celery")
+    parser.add_argument("--input-dir", default=os.path.join(base_dir, "data", "raw"))
+    parser.add_argument("--output-dir", default=os.path.join(base_dir, "data", "processed"))
+    args = parser.parse_args()
+    run_pipeline(args.input_dir, args.output_dir)
+
+
+if __name__ == "__main__":
+    main()

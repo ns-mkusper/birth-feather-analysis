@@ -1,27 +1,28 @@
 # Feather Molt Analysis Pipeline
 
-A distributed, GPU-accelerated pipeline for extracting, segmenting, and analyzing longitudinal molt patterns in bird feathers using Apple Silicon (mps).
+A distributed feather segmentation pipeline for Apple Silicon Mac minis using Celery workers and a Redis-backed task queue.
 
 ## Project Structure
-- `data/raw/`: Drop the uncompressed feather `.jpg` files here.
-- `data/processed/`: The pipeline will output isolated, normalized feather crops here.
-- `notebooks/`: Contains the `minimal_slice_native.ipynb` PoC for interactive development (includes R `pavo` integration).
-- `src/`: Contains the distributed Ray script (`full_run_ray.py`) for processing the entire dataset across the cluster.
-- `models/`: Store custom weights (like `yolov8-feather.pt`) here.
+- `data/raw/`: Input feather `.jpg` files.
+- `data/processed/`: Output segmented feather crops.
+- `src/full_run_distributed.py`: Dispatches all image tasks to the cluster.
+- `src/celery_tasks.py`: Distributed task definitions.
+- `src/feather_processing.py`: Core segmentation and extraction logic.
+- `run_cluster.sh`: Bootstraps Redis, Celery workers, Flower, and starts the pipeline.
 
-## How to Use (Interactive Jupyter)
-1. Execute `./start_jupyter.sh`
-2. Connect via browser (e.g. `http://<compute-cluster-ip>:8889/lab`).
+## Local Setup
+1. Run `./setup_env.sh`
+2. Activate env: `conda activate feather_env`
 
-## How to Use (Distributed Ray Cluster)
-1. Ensure Ray is started on the head node and all worker nodes with OSX clustering enabled:
+## Cluster Run (4 Mac minis)
+1. Ensure your SSH key and host IPs in `run_cluster.sh` are correct.
+2. Place all feather images in `data/raw/`.
+3. Launch cluster + pipeline:
    ```bash
-   export RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1
-   ray start --head --port=6379  # (On head node)
-   ray start --address='<head-ip>:6379' # (On worker nodes)
+   ./run_cluster.sh
    ```
-2. From the project root on the head node, run:
-   ```bash
-   export RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1
-   python3 src/full_run_ray.py
-   ```
+
+## Monitoring
+- Flower dashboard: `http://<head-ip>:5555`
+- Pipeline log on head: `distributed_pipeline.log`
+- Worker logs on each node: `celery_worker.log`

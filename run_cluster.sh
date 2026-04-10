@@ -1,8 +1,8 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 echo "=========================================="
-echo "🚀 STARTING MULTI-NODE RAY CLUSTER 🚀"
+echo "🚀 STARTING MULTI-NODE CELERY CLUSTER 🚀"
 echo "=========================================="
 
 KEY="~/.ssh/ubuntu-mac-openteams-admin"
@@ -12,93 +12,127 @@ WORKER_IPS=("10.0.0.63" "10.0.0.19" "10.0.0.118")
 REPO_DIR="/Users/openteams/Feather_Molt_Project"
 PYTHON_BIN="/Users/openteams/miniforge3/envs/feather_env/bin/python"
 PIP_BIN="/Users/openteams/miniforge3/envs/feather_env/bin/pip"
-RAY_BIN="/Users/openteams/miniforge3/envs/feather_env/bin/ray"
 
-# Stop existing processes on HEAD and prepare
-echo "1. Preparing HEAD Node ($HEAD_IP)..."
-ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "
-    $PIP_BIN install -q 'ray[default]==2.54.1' python-dotenv mlx_vlm
-    $RAY_BIN stop -f > /dev/null 2>&1 || true
-            if [ ! -d "$REPO_DIR/.git" ]; then
-            echo "      Cloning repository to $ip..."
-            git clone git@github.com:ns-mkusper/birth-feather-thesis.git $REPO_DIR > /dev/null 2>&1
-        fi
-        cd $REPO_DIR && git fetch origin && git reset --hard origin/main > /dev/null 2>&1
-"
+BROKER_URL="redis://$HEAD_IP:6379/0"
+RESULT_BACKEND="redis://$HEAD_IP:6379/1"
+WORKER_CONCURRENCY="${WORKER_CONCURRENCY:-1}"
 
-# Export HF_TOKEN if available in the repo to copy to workers
-echo "2. Syncing Environment & Bootstrapping WORKER Nodes..."
-for ip in "${WORKER_IPS[@]}"; do
-    echo "   -> Syncing to Worker: $ip"
-    ssh -i $KEY -o StrictHostKeyChecking=no $USER@$ip "
-        if [ ! -d \"/Users/openteams/miniforge3\" ]; then
-            echo \"      [+] Installing Miniforge3 on \$ip...\"
-            curl -sL https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-arm64.sh -o miniforge.sh
-            bash miniforge.sh -b -p /Users/openteams/miniforge3 > /dev/null 2>&1
-            rm miniforge.sh
-        fi
-        
-        source /Users/openteams/miniforge3/etc/profile.d/conda.sh
-        if ! conda env list | grep -q \"feather_env\"; then
-            conda remove -y --name feather_env --all > /dev/null 2>&1 || true
-            echo \"      [+] Creating feather_env and installing dependencies on \$ip (this may take 5+ minutes)...\"
-            conda create -y -n feather_env -c conda-forge python=3.10 > /dev/null 2>&1
-            conda activate feather_env
-            pip install -q torch torchvision ultralytics pandas open_clip_torch einops kornia timm mlx_vlm grad-cam 'ray[default]==2.54.1' opencv-python python-dotenv
-        else
-            conda activate feather_env
-            pip install -q 'ray[default]==2.54.1' python-dotenv mlx_vlm
-        fi
-        
-                if [ ! -d "$REPO_DIR/.git" ]; then
-            echo "      Cloning repository to $ip..."
-            git clone git@github.com:ns-mkusper/birth-feather-thesis.git $REPO_DIR > /dev/null 2>&1
-        fi
-        cd $REPO_DIR && git fetch origin && git reset --hard origin/main > /dev/null 2>&1
-        $RAY_BIN stop -f > /dev/null 2>&1 || true
-    " &
-    
-    # Sync the .env file so the workers have the HuggingFace token
-    scp -i $KEY -o StrictHostKeyChecking=no .env $USER@$ip:$REPO_DIR/.env > /dev/null 2>&1 || true
-done
-wait # Wait for all worker nodes to finish bootstrapping
-
-echo "3. Starting HEAD Node ($HEAD_IP)..."
-ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "
-    # Force strict IPv4 TCP binding in socat to solve the weird MacOS network stack translation issues.
-    # Create Ray Metrics Config to force Ray Dashboard to pull from Plex Server
-    mkdir -p /tmp/ray
-    cat << 'METRICS' > /tmp/ray/ray_metrics_config.json
-{
-  "prometheus_host": "http://10.0.0.246:9090",
-  "grafana_host": "http://10.0.0.246:3000",
-  "grafana_dashboard_url": "http://10.0.0.246:3000"
+sync_env_file() {
+  local ip="$1"
+  scp -i $KEY -o StrictHostKeyChecking=no .env $USER@$ip:$REPO_DIR/.env >/dev/null 2>&1 || true
 }
-METRICS
 
-    RAY_PROMETHEUS_HOST="http://10.0.0.246:9090" RAY_GRAFANA_HOST="http://10.0.0.246:3000" RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1 $RAY_BIN start --head --node-ip-address=$HEAD_IP --port=6379 --dashboard-host=0.0.0.0 --metrics-export-port=8080 --num-cpus=14 > /dev/null 2>&1
+echo "1. Preparing HEAD node ($HEAD_IP)..."
+ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "
+  if ! command -v brew >/dev/null 2>&1; then
+    echo 'Homebrew is required on the head node. Install Homebrew first.'
+    exit 1
+  fi
+  brew list redis >/dev/null 2>&1 || brew install redis
+  $PIP_BIN install -q --upgrade pip
+  $PIP_BIN install -q torch torchvision ultralytics pandas open_clip_torch einops kornia timm mlx_vlm grad-cam opencv-python python-dotenv celery[redis] flower redis
+
+  if [ ! -d '$REPO_DIR/.git' ]; then
+    git clone git@github.com:ns-mkusper/birth-feather-thesis.git '$REPO_DIR' >/dev/null 2>&1
+  fi
+  cd '$REPO_DIR' && git fetch origin && git reset --hard origin/main >/dev/null 2>&1
+
+  pkill -f 'src/full_run_distributed.py' >/dev/null 2>&1 || true
+  pkill -f 'celery -A src.celery_app worker' >/dev/null 2>&1 || true
+  pkill -f 'celery -A src.celery_app flower' >/dev/null 2>&1 || true
+  pkill -f 'redis-server .*feather_redis.conf' >/dev/null 2>&1 || true
 "
-echo "   ✅ Head Node active! Dashboard available at http://$HEAD_IP:8265"
 
-echo "4. Joining WORKER Nodes to the cluster..."
+sync_env_file "$HEAD_IP"
+
+echo "2. Preparing WORKER nodes..."
 for ip in "${WORKER_IPS[@]}"; do
-    echo "   -> Joining Worker: $ip"
-    ssh -i $KEY -o StrictHostKeyChecking=no $USER@$ip "
-        RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1 $RAY_BIN start --address=$HEAD_IP:6379 --metrics-export-port=8080 --num-cpus=14 > /dev/null 2>&1
-    " &
+  echo "   -> $ip"
+  ssh -i $KEY -o StrictHostKeyChecking=no $USER@$ip "
+    if [ ! -d '/Users/openteams/miniforge3' ]; then
+      curl -sL https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-arm64.sh -o miniforge.sh
+      bash miniforge.sh -b -p /Users/openteams/miniforge3 >/dev/null 2>&1
+      rm miniforge.sh
+    fi
+
+    source /Users/openteams/miniforge3/etc/profile.d/conda.sh
+    if ! conda env list | grep -q 'feather_env'; then
+      conda create -y -n feather_env -c conda-forge python=3.10 >/dev/null 2>&1
+    fi
+    conda activate feather_env
+
+    /Users/openteams/miniforge3/envs/feather_env/bin/pip install -q --upgrade pip
+    /Users/openteams/miniforge3/envs/feather_env/bin/pip install -q torch torchvision ultralytics pandas open_clip_torch einops kornia timm mlx_vlm grad-cam opencv-python python-dotenv celery[redis] flower redis
+
+    if [ ! -d '$REPO_DIR/.git' ]; then
+      git clone git@github.com:ns-mkusper/birth-feather-thesis.git '$REPO_DIR' >/dev/null 2>&1
+    fi
+    cd '$REPO_DIR' && git fetch origin && git reset --hard origin/main >/dev/null 2>&1
+
+    pkill -f 'celery -A src.celery_app worker' >/dev/null 2>&1 || true
+    pkill -f 'src/full_run_distributed.py' >/dev/null 2>&1 || true
+  " &
+  sync_env_file "$ip"
 done
 wait
-echo "   ✅ All Workers connected to Head Node!"
 
-echo "5. Launching Distributed AI Pipeline!"
+echo "3. Starting Redis on HEAD..."
 ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "
-    cd $REPO_DIR
-    nohup $PYTHON_BIN src/full_run_ray.py > ray_cluster_distributed.log 2>&1 &
+  cat > /tmp/feather_redis.conf <<'CONF'
+port 6379
+bind 0.0.0.0
+protected-mode no
+dbfilename feather_dump.rdb
+dir /tmp
+appendonly no
+CONF
+  nohup redis-server /tmp/feather_redis.conf >/tmp/feather_redis.log 2>&1 &
 "
+
+sleep 2
+
+echo "4. Starting Celery workers..."
+ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "
+  cd '$REPO_DIR'
+  export PYTHONPATH='$REPO_DIR'
+  export BROKER_URL='$BROKER_URL'
+  export RESULT_BACKEND='$RESULT_BACKEND'
+  nohup $PYTHON_BIN -m celery -A src.celery_app worker --loglevel=INFO --concurrency=$WORKER_CONCURRENCY --hostname=head@%h > celery_worker.log 2>&1 &
+"
+
+for ip in "${WORKER_IPS[@]}"; do
+  ssh -i $KEY -o StrictHostKeyChecking=no $USER@$ip "
+    cd '$REPO_DIR'
+    export PYTHONPATH='$REPO_DIR'
+    export BROKER_URL='$BROKER_URL'
+    export RESULT_BACKEND='$RESULT_BACKEND'
+    nohup $PYTHON_BIN -m celery -A src.celery_app worker --loglevel=INFO --concurrency=$WORKER_CONCURRENCY --hostname=worker@%h > celery_worker.log 2>&1 &
+  " &
+done
+wait
+
+echo "5. Starting Flower dashboard on HEAD..."
+ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "
+  cd '$REPO_DIR'
+  export PYTHONPATH='$REPO_DIR'
+  export BROKER_URL='$BROKER_URL'
+  export RESULT_BACKEND='$RESULT_BACKEND'
+  nohup $PYTHON_BIN -m celery -A src.celery_app flower --address=0.0.0.0 --port=5555 > flower.log 2>&1 &
+"
+
+echo "6. Launching distributed feather pipeline..."
+ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "
+  cd '$REPO_DIR'
+  export PYTHONPATH='$REPO_DIR'
+  export BROKER_URL='$BROKER_URL'
+  export RESULT_BACKEND='$RESULT_BACKEND'
+  nohup $PYTHON_BIN src/full_run_distributed.py > distributed_pipeline.log 2>&1 &
+"
+
 echo "=========================================="
-echo "🎉 MULTI-NODE CLUSTER DEPLOYED 🎉"
+echo "🎉 CELERY CLUSTER DEPLOYED 🎉"
 echo "=========================================="
-echo "To monitor progress:"
-echo "1. Ray Dashboard: Open http://$HEAD_IP:8265 in your browser."
-echo "2. Process Gallery: Open http://$HEAD_IP:8889/lab and run Live_Processing_Gallery.ipynb"
+echo "Flower dashboard: http://$HEAD_IP:5555"
+echo "Pipeline log (head): $REPO_DIR/distributed_pipeline.log"
+echo "Worker logs: $REPO_DIR/celery_worker.log"
 echo "=========================================="
