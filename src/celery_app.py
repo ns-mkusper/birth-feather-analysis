@@ -16,5 +16,20 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     task_acks_late=True,
     task_track_started=True,
+    broker_heartbeat=0,
+    broker_connection_retry_on_startup=True,
+    broker_connection_retry=True,
+    broker_transport_options={
+        "socket_keepalive": True,
+        "socket_connect_timeout": 30,
+        "socket_timeout": 120,
+        "retry_on_timeout": True,
+    },
+    result_backend_transport_options={
+        "socket_keepalive": True,
+        "socket_connect_timeout": 30,
+        "socket_timeout": 120,
+        "retry_on_timeout": True,
+    },
     include=["src.celery_tasks"],
 )
