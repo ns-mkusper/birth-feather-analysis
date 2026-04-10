@@ -275,8 +275,7 @@ def run_pipeline(input_dir, output_dir):
     time.sleep(5)
     
     # We explicitly want exactly 1 AI pipeline per physical Mac Mini to prevent Apple Silicon unified memory thrashing
-    active_nodes = len([n for n in ray.nodes() if n.get("Alive")])
-    num_actors = active_nodes
+    num_actors = 4
     num_cpus = int(ray.cluster_resources().get('CPU', 4))
     print(f'Cluster resources: {num_cpus} CPUs available. Spinning up {num_actors} parallel actors to prevent Out-Of-Memory crashes.')
     
