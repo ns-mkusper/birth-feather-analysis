@@ -18,3 +18,15 @@ venv/
 # Models
 models/*.pt
 models/*.pth
+
+# Local ops scripts (may contain machine-specific credentials)
+fix_grafana.sh
+fix_grafana_gpu.sh
+fix_grafana_panels.sh
+fix_grafana_panels2.sh
+install_grafana_dashboards_final.sh
+install_grafana_dashboards_final2.sh
+install_grafana_dashboards_final3.sh
+install_grafana_dashboards_final4.sh
+install_grafana_dashboards_final5.sh
+install_grafana_dashboards_final6.sh
