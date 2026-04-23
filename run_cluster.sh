@@ -13,6 +13,14 @@ REPO_DIR="/Users/openteams/Feather_Molt_Project"
 PYTHON_BIN="/Users/openteams/miniforge3/envs/feather_env/bin/python"
 PIP_BIN="/Users/openteams/miniforge3/envs/feather_env/bin/pip"
 
+# Dynamically construct SSH options to suppress missing identity file warnings
+# if running directly on a node that doesn't have the key
+SSH_OPTS="-o StrictHostKeyChecking=no"
+eval EXPANDED_KEY="$KEY"
+if [ -f "$EXPANDED_KEY" ]; then
+  SSH_OPTS="-i $KEY $SSH_OPTS"
+fi
+
 BROKER_URL="redis://$HEAD_IP:6379/0"
 RESULT_BACKEND="redis://$HEAD_IP:6379/1"
 WORKER_CONCURRENCY="${WORKER_CONCURRENCY:-1}"
@@ -20,11 +28,11 @@ SYNC_RAW_DATA="${SYNC_RAW_DATA:-1}"
 
 sync_env_file() {
   local ip="$1"
-  scp -i $KEY -o StrictHostKeyChecking=no .env $USER@$ip:$REPO_DIR/.env >/dev/null 2>&1 || true
+  scp $SSH_OPTS .env $USER@$ip:$REPO_DIR/.env >/dev/null 2>&1 || true
 }
 
 echo "1. Preparing HEAD node ($HEAD_IP)..."
-ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "
+ssh $SSH_OPTS $USER@$HEAD_IP "
   source /Users/openteams/miniforge3/etc/profile.d/conda.sh
   conda activate feather_env >/dev/null 2>&1 || true
   $PIP_BIN install -q --upgrade pip
@@ -72,7 +80,7 @@ sync_env_file "$HEAD_IP"
 echo "2. Preparing WORKER nodes..."
 for ip in "${WORKER_IPS[@]}"; do
   echo "   -> $ip"
-  ssh -i $KEY -o StrictHostKeyChecking=no $USER@$ip "
+  ssh $SSH_OPTS $USER@$ip "
     if [ ! -d '/Users/openteams/miniforge3' ]; then
       curl -sL https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-arm64.sh -o miniforge.sh
       bash miniforge.sh -b -p /Users/openteams/miniforge3 >/dev/null 2>&1
@@ -102,23 +110,23 @@ wait
 
 if [ "$SYNC_RAW_DATA" = "1" ]; then
   echo "2b. Syncing raw dataset from HEAD to workers (if needed)..."
-  HEAD_RAW_COUNT=$(ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "find '$REPO_DIR/data/raw' -maxdepth 1 -type f | wc -l")
+  HEAD_RAW_COUNT=$(ssh $SSH_OPTS $USER@$HEAD_IP "find '$REPO_DIR/data/raw' -maxdepth 1 -type f | wc -l")
   for ip in "${WORKER_IPS[@]}"; do
-    WORKER_RAW_COUNT=$(ssh -i $KEY -o StrictHostKeyChecking=no $USER@$ip "find '$REPO_DIR/data/raw' -maxdepth 1 -type f 2>/dev/null | wc -l")
+    WORKER_RAW_COUNT=$(ssh $SSH_OPTS $USER@$ip "find '$REPO_DIR/data/raw' -maxdepth 1 -type f 2>/dev/null | wc -l")
     if [ "$WORKER_RAW_COUNT" = "$HEAD_RAW_COUNT" ]; then
       echo "   -> $ip already has $WORKER_RAW_COUNT raw files"
       continue
     fi
     echo "   -> syncing raw data to $ip ($WORKER_RAW_COUNT -> $HEAD_RAW_COUNT files)"
-    ssh -i $KEY -o StrictHostKeyChecking=no $USER@$ip "mkdir -p '$REPO_DIR/data' && rm -rf '$REPO_DIR/data/raw'"
-    ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "cd '$REPO_DIR/data' && tar -cf - raw" | \
-      ssh -i $KEY -o StrictHostKeyChecking=no $USER@$ip "cd '$REPO_DIR/data' && tar -xf -"
-    ssh -i $KEY -o StrictHostKeyChecking=no $USER@$ip "find '$REPO_DIR/data/raw' -maxdepth 1 -type f | wc -l"
+    ssh $SSH_OPTS $USER@$ip "mkdir -p '$REPO_DIR/data' && rm -rf '$REPO_DIR/data/raw'"
+    ssh $SSH_OPTS $USER@$HEAD_IP "cd '$REPO_DIR/data' && tar -cf - raw" | \
+      ssh $SSH_OPTS $USER@$ip "cd '$REPO_DIR/data' && tar -xf -"
+    ssh $SSH_OPTS $USER@$ip "find '$REPO_DIR/data/raw' -maxdepth 1 -type f | wc -l"
   done
 fi
 
 echo "3. Starting Redis on HEAD..."
-ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "
+ssh $SSH_OPTS $USER@$HEAD_IP "
   REDIS_BIN=\$(cat /tmp/feather_redis_bin_path)
   cat > /tmp/feather_redis.conf <<'CONF'
 port 6379
@@ -134,7 +142,7 @@ CONF
 sleep 2
 
 echo "4. Starting Celery workers..."
-ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "
+ssh $SSH_OPTS $USER@$HEAD_IP "
   cd '$REPO_DIR'
   export PYTHONPATH='$REPO_DIR'
   export BROKER_URL='$BROKER_URL'
@@ -143,7 +151,7 @@ ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "
 "
 
 for ip in "${WORKER_IPS[@]}"; do
-  ssh -i $KEY -o StrictHostKeyChecking=no $USER@$ip "
+  ssh $SSH_OPTS $USER@$ip "
     cd '$REPO_DIR'
     export PYTHONPATH='$REPO_DIR'
     export BROKER_URL='$BROKER_URL'
@@ -154,7 +162,7 @@ done
 wait
 
 echo "5. Starting Flower dashboard on HEAD..."
-ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "
+ssh $SSH_OPTS $USER@$HEAD_IP "
   cd '$REPO_DIR'
   export PYTHONPATH='$REPO_DIR'
   export BROKER_URL='$BROKER_URL'
@@ -164,7 +172,7 @@ ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "
 "
 
 echo "6. Launching distributed feather pipeline..."
-ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HEAD_IP "
+ssh $SSH_OPTS $USER@$HEAD_IP "
   cd '$REPO_DIR'
   export PYTHONPATH='$REPO_DIR'
   export BROKER_URL='$BROKER_URL'
