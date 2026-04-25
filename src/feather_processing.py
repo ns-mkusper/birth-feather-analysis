@@ -29,6 +29,7 @@ class ProcessResult:
     vlm_all_feathers_covered: bool | None = None
     vlm_background_leakage_detected: bool | None = None
     vlm_green_boxes_grouped_feathers: bool | None = None
+    vlm_notes: str = ""
     processing_profile: str = "default"
 
 
@@ -88,6 +89,7 @@ class FeatherProcessor:
             "all_feathers_covered": None,
             "background_leakage_detected": None,
             "green_boxes_grouped_feathers": None,
+            "notes": "",
         }
         if not (self.has_vlm and self.vlm_generate is not None and (self.vlm_scoring_enabled or self.vlm_metadata_enabled)):
             return out
@@ -97,7 +99,8 @@ class FeatherProcessor:
             "Given this feather slide image/overlay, extract specimen metadata and segmentation quality.\n"
             "Return exactly JSON with keys:\n"
             '{"Bird_ID":"A1234 or UNKNOWN","Date":"YYYY-MM-DD or YYYY or UNKNOWN","quality_score_1_to_10":0-10,'
-            '"all_feathers_covered":true/false,"background_leakage_detected":true/false,"green_boxes_grouped_feathers":true/false}'
+            '"all_feathers_covered":true/false,"background_leakage_detected":true/false,"green_boxes_grouped_feathers":true/false,'
+            '"notes":"short explanation of major issue(s) or empty string"}'
             "<|im_end|>\n<|im_start|>assistant\n"
         )
         try:
@@ -122,6 +125,9 @@ class FeatherProcessor:
                     val = obj.get(key)
                     if isinstance(val, bool):
                         out[key] = val
+                notes = obj.get("notes")
+                if isinstance(notes, str):
+                    out["notes"] = notes.strip()
                 return out
             num = re.search(r"([0-9]+(?:\\.[0-9]+)?)", text)
             if num:
@@ -231,6 +237,7 @@ class FeatherProcessor:
             "green_boxes_grouped_feathers": None,
             "Bird_ID": "UNKNOWN",
             "Date": "UNKNOWN",
+            "notes": "",
         }
 
         try:
@@ -407,6 +414,7 @@ class FeatherProcessor:
                 vlm_all_feathers_covered=vlm_judge.get("all_feathers_covered"),
                 vlm_background_leakage_detected=vlm_judge.get("background_leakage_detected"),
                 vlm_green_boxes_grouped_feathers=vlm_judge.get("green_boxes_grouped_feathers"),
+                vlm_notes=str(vlm_judge.get("notes") or ""),
                 processing_profile=profile,
             )
         except Exception as exc:  # noqa: BLE001

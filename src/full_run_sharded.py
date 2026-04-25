@@ -66,6 +66,7 @@ def _init_stats_db(db_path: str) -> sqlite3.Connection:
             vlm_all_feathers_covered INTEGER,
             vlm_background_leakage_detected INTEGER,
             vlm_grouped_boxes_detected INTEGER,
+            vlm_notes TEXT,
             metadata_source TEXT,
             bird_id TEXT,
             date_text TEXT,
@@ -76,6 +77,10 @@ def _init_stats_db(db_path: str) -> sqlite3.Connection:
         )
         """
     )
+    # Lightweight schema migration for older DB files.
+    existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(image_stats)").fetchall()}
+    if "vlm_notes" not in existing_cols:
+        conn.execute("ALTER TABLE image_stats ADD COLUMN vlm_notes TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_image_stats_run ON image_stats(run_id)")
     conn.commit()
     return conn
@@ -87,11 +92,11 @@ def _upsert_stats_row(conn: sqlite3.Connection, row: dict) -> None:
         INSERT INTO image_stats (
             run_id, node_id, image_path, ts, success, reason, feathers_saved, duration_ms,
             vlm_score, vlm_all_feathers_covered, vlm_background_leakage_detected, vlm_grouped_boxes_detected,
-            metadata_source, bird_id, date_text, retry_used, retry_selected, profile_selected
+            vlm_notes, metadata_source, bird_id, date_text, retry_used, retry_selected, profile_selected
         ) VALUES (
             :run_id, :node_id, :image_path, :ts, :success, :reason, :feathers_saved, :duration_ms,
             :vlm_score, :vlm_all_feathers_covered, :vlm_background_leakage_detected, :vlm_grouped_boxes_detected,
-            :metadata_source, :bird_id, :date_text, :retry_used, :retry_selected, :profile_selected
+            :vlm_notes, :metadata_source, :bird_id, :date_text, :retry_used, :retry_selected, :profile_selected
         )
         ON CONFLICT(run_id, node_id, image_path) DO UPDATE SET
             ts=excluded.ts,
@@ -103,6 +108,7 @@ def _upsert_stats_row(conn: sqlite3.Connection, row: dict) -> None:
             vlm_all_feathers_covered=excluded.vlm_all_feathers_covered,
             vlm_background_leakage_detected=excluded.vlm_background_leakage_detected,
             vlm_grouped_boxes_detected=excluded.vlm_grouped_boxes_detected,
+            vlm_notes=excluded.vlm_notes,
             metadata_source=excluded.metadata_source,
             bird_id=excluded.bird_id,
             date_text=excluded.date_text,
@@ -189,6 +195,7 @@ def _emit_step(
     vlm_all_feathers_covered: bool | None,
     vlm_background_leakage_detected: bool | None,
     vlm_green_boxes_grouped_feathers: bool | None,
+    vlm_notes: str,
     retry_used: bool,
     retry_selected: bool,
 ) -> None:
@@ -268,6 +275,7 @@ def _emit_step(
                 "vlm_all_feathers_covered": "" if vlm_all_feathers_covered is None else int(vlm_all_feathers_covered),
                 "vlm_background_leakage_detected": "" if vlm_background_leakage_detected is None else int(vlm_background_leakage_detected),
                 "vlm_grouped_boxes": "" if vlm_green_boxes_grouped_feathers is None else int(vlm_green_boxes_grouped_feathers),
+                "vlm_notes": (vlm_notes or "")[:512],
                 "retry_used": int(retry_used),
                 "retry_selected": int(retry_selected),
             },
@@ -491,6 +499,7 @@ def run_shard(
                 "vlm_all_feathers_covered": result.vlm_all_feathers_covered,
                 "vlm_background_leakage_detected": result.vlm_background_leakage_detected,
                 "vlm_grouped_boxes_detected": result.vlm_green_boxes_grouped_feathers,
+                "vlm_notes": result.vlm_notes,
                 "metadata_source": result.metadata_source,
                 "bird_id": result.bird_id,
                 "date": result.date,
@@ -514,6 +523,7 @@ def run_shard(
                 "vlm_all_feathers_covered": None if result.vlm_all_feathers_covered is None else (1 if result.vlm_all_feathers_covered else 0),
                 "vlm_background_leakage_detected": None if result.vlm_background_leakage_detected is None else (1 if result.vlm_background_leakage_detected else 0),
                 "vlm_grouped_boxes_detected": None if result.vlm_green_boxes_grouped_feathers is None else (1 if result.vlm_green_boxes_grouped_feathers else 0),
+                "vlm_notes": result.vlm_notes,
                 "metadata_source": result.metadata_source,
                 "bird_id": result.bird_id,
                 "date_text": result.date,
@@ -538,6 +548,7 @@ def run_shard(
             result.vlm_all_feathers_covered,
             result.vlm_background_leakage_detected,
             result.vlm_green_boxes_grouped_feathers,
+            result.vlm_notes,
             retry_used,
             retry_selected,
         )
