@@ -46,11 +46,11 @@ class FeatherProcessor:
         self.vlm_model = None
         self.vlm_processor = None
         self.vlm_generate = None
-        self.vlm_scoring_enabled = os.getenv("FEATHER_ENABLE_VLM_SCORING", "0") == "1"
+        self.vlm_scoring_enabled = os.getenv("FEATHER_ENABLE_VLM_SCORING", "1") == "1"
         self.vlm_metadata_enabled = os.getenv("FEATHER_ENABLE_VLM_METADATA", "1") == "1"
         self.vlm_model_id = os.getenv("FEATHER_VLM_MODEL", "mlx-community/Qwen3-VL-8B-Instruct-4bit")
         # Keep VLM opt-in so workers avoid expensive startup unless explicitly enabled.
-        if os.getenv("FEATHER_ENABLE_VLM", "0") == "1":
+        if os.getenv("FEATHER_ENABLE_VLM", "1") == "1":
             try:
                 from mlx_vlm import generate as mlx_generate
                 from mlx_vlm import load as mlx_load
@@ -403,6 +403,14 @@ class FeatherProcessor:
                 if self.vlm_scoring_enabled and isinstance(vlm_judge.get("quality_score_1_to_10"), (int, float))
                 else None
             )
+            vlm_notes = str(vlm_judge.get("notes") or "")
+            if not vlm_notes:
+                if not self.has_vlm:
+                    vlm_notes = "VLM disabled or unavailable at runtime."
+                elif not self.vlm_scoring_enabled:
+                    vlm_notes = "VLM scoring disabled for this run."
+                elif vlm_score is None:
+                    vlm_notes = "VLM returned no numeric quality score."
             return ProcessResult(
                 image_path=image_path,
                 success=True,
@@ -414,7 +422,7 @@ class FeatherProcessor:
                 vlm_all_feathers_covered=vlm_judge.get("all_feathers_covered"),
                 vlm_background_leakage_detected=vlm_judge.get("background_leakage_detected"),
                 vlm_green_boxes_grouped_feathers=vlm_judge.get("green_boxes_grouped_feathers"),
-                vlm_notes=str(vlm_judge.get("notes") or ""),
+                vlm_notes=vlm_notes,
                 processing_profile=profile,
             )
         except Exception as exc:  # noqa: BLE001
