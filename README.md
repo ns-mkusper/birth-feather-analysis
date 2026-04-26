@@ -4,7 +4,7 @@ A distributed feather segmentation pipeline for a scalable cluster of Celery wor
 
 ## Workflow Architecture
 ```mermaid
-flowchart LR
+flowchart TB
     A[Ingest Raw Images] --> B[Distribute Work Across Cluster<br/>Celery + Redis]
     B --> C[Detect Feather Regions<br/>Grounding DINO]
     C --> D[Generate Pixel Masks<br/>SAM 2.x]
