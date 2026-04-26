@@ -37,19 +37,38 @@ def _safe_node_label(node_id: str) -> str:
     return "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in node_id)
 
 
+def _ensure_parent_dir(path: str) -> None:
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+
 def _write_local_state(path: str, state: dict) -> None:
+    _ensure_parent_dir(path)
     tmp = f"{path}.tmp"
-    with open(tmp, "w", encoding="utf-8") as handle:
-        json.dump(state, handle, sort_keys=True)
+    try:
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump(state, handle, sort_keys=True)
+    except FileNotFoundError:
+        _ensure_parent_dir(path)
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump(state, handle, sort_keys=True)
     os.replace(tmp, path)
 
 
 def _append_jsonl(path: str, row: dict) -> None:
-    with open(path, "a", encoding="utf-8") as handle:
-        handle.write(json.dumps(row, sort_keys=True) + "\n")
+    _ensure_parent_dir(path)
+    try:
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row, sort_keys=True) + "\n")
+    except FileNotFoundError:
+        _ensure_parent_dir(path)
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row, sort_keys=True) + "\n")
 
 
 def _init_stats_db(db_path: str) -> sqlite3.Connection:
+    _ensure_parent_dir(db_path)
     conn = sqlite3.connect(db_path, timeout=30)
     conn.execute(
         """
