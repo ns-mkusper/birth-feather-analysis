@@ -2,6 +2,25 @@
 
 A distributed feather segmentation pipeline for a scalable cluster of Celery workers using a Redis-backed task queue.
 
+## Workflow Architecture
+```mermaid
+flowchart LR
+    A[Raw Image Ingest<br/>data/raw] --> B[Task Orchestration<br/>Celery + Redis]
+    B --> C[Grounding DINO<br/>Zero-Shot Box Proposals]
+    C --> D[SAM 2.x<br/>Pixel-Level Segmentation]
+    D --> E[Crop + Normalize + Save<br/>data/runs/<run_id>/processed]
+    D --> F[Bounding Box Preview<br/>_BoundingBoxes.jpg]
+    F --> G[Qwen3-VL QA<br/>score + flags + notes]
+    G --> H[Run Metrics DB<br/>run_stats.sqlite3]
+    H --> I[Monitoring Notebooks<br/>DB-backed dashboards]
+```
+
+- Zero-shot object grounding: `Grounding DINO` uses text prompts (for example, `"bird feather."`) to propose feather boxes without task-specific training.
+- Prompted segmentation: `SAM 2.x` refines detection boxes into pixel-level masks for feather cutouts.
+- Vision-language quality checks: `Qwen3-VL` can score outputs and emit QA flags/notes (coverage, leakage, grouped boxes) into run metrics.
+- Metadata extraction fallback: filename parsing is primary; VLM fallback can recover `bird_id` / date when filename metadata is incomplete.
+- Distributed orchestration: Celery + Redis coordinates parallel per-image processing across a scalable cluster.
+
 ## Project Structure
 - `data/raw/`: Input feather `.jpg` files.
 - `data/processed/`: Output segmented feather crops.
@@ -46,10 +65,3 @@ You can run orchestration from a hosted notebook/kernel while keeping data and m
    ```
 
 The notebook host acts as a control plane only. Celery workers do the heavy model inference.
-
-## AI Concepts Used
-- Zero-shot object grounding: `Grounding DINO` uses text prompts (for example, `"bird feather."`) to propose feather boxes without task-specific training.
-- Prompted segmentation: `SAM 2.x` refines detection boxes into pixel-level masks for feather cutouts.
-- Vision-language quality checks: `Qwen3-VL` can score outputs and emit QA flags/notes (coverage, leakage, grouped boxes) into run metrics.
-- Metadata extraction fallback: filename parsing is primary; VLM fallback can recover `bird_id` / date when filename metadata is incomplete.
-- Distributed orchestration: Celery + Redis coordinates parallel per-image processing across a scalable cluster.
