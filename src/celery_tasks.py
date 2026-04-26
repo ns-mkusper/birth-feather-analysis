@@ -15,7 +15,7 @@ _PROCESSOR: FeatherProcessor | None = None
 def _get_processor() -> FeatherProcessor:
     global _PROCESSOR
     if _PROCESSOR is None:
-        # Import lazily so producer-only environments (for example Nebari notebooks)
+        # Import lazily so producer-only notebook/control-plane environments
         # can dispatch tasks without installing worker-only model dependencies.
         from src.feather_processing import FeatherProcessor
 

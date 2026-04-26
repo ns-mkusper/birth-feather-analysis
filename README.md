@@ -27,7 +27,7 @@ A distributed feather segmentation pipeline for a scalable cluster of Celery wor
 - Pipeline log on head: `distributed_pipeline.log`
 - Worker logs on each node: `celery_worker.log`
 
-## Run From Nebari (No Local Image Mirror)
+## Remote Notebook Orchestration (No Local Image Mirror)
 You can run orchestration from a hosted notebook/kernel while keeping data and model execution on the cluster.
 
 1. Point the notebook kernel to the cluster broker/backend:
@@ -35,7 +35,7 @@ You can run orchestration from a hosted notebook/kernel while keeping data and m
    export BROKER_URL=redis://10.0.0.148:6379/0
    export RESULT_BACKEND=redis://10.0.0.148:6379/1
    ```
-2. Submit work using remote paths (as seen by minis), without copying `data/raw` to Nebari:
+2. Submit work using remote paths (as seen by cluster workers), without copying `data/raw` locally:
    ```bash
    python -m src.submit_remote_pipeline \
      --host 10.0.0.148 \
@@ -45,4 +45,11 @@ You can run orchestration from a hosted notebook/kernel while keeping data and m
      --remote-output-dir /Users/openteams/Feather_Molt_Project/data/processed
    ```
 
-The notebook host acts as a control plane only. Celery workers on minis do the heavy model inference.
+The notebook host acts as a control plane only. Celery workers do the heavy model inference.
+
+## AI Concepts Used
+- Zero-shot object grounding: `Grounding DINO` uses text prompts (for example, `"bird feather."`) to propose feather boxes without task-specific training.
+- Prompted segmentation: `SAM 2.x` refines detection boxes into pixel-level masks for feather cutouts.
+- Vision-language quality checks: `Qwen3-VL` can score outputs and emit QA flags/notes (coverage, leakage, grouped boxes) into run metrics.
+- Metadata extraction fallback: filename parsing is primary; VLM fallback can recover `bird_id` / date when filename metadata is incomplete.
+- Distributed orchestration: Celery + Redis coordinates parallel per-image processing across a scalable cluster.
